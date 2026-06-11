@@ -9,12 +9,14 @@ import com.gait.biomedicaltwin.repositories.GaitDataPointRepository;
 import com.gait.biomedicaltwin.repositories.GaitSessionRepository;
 import com.gait.biomedicaltwin.repositories.UserRepository;
 import com.gait.biomedicaltwin.services.analytics.AnalyticsService;
+import com.gait.biomedicaltwin.services.snapshot.SnapshotService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -25,7 +27,7 @@ public class IngestionServiceImpl implements IngestionService{
     private final GaitDataPointRepository dataPointRepository;
     private final GaitSessionRepository sessionRepository;
     private final AnalyticsService analyticsService;
-
+    private final SnapshotService snapshotService;
     private static final long SESSION_TIMEOUT_MINUTES = 5;
 
     @Override
@@ -74,7 +76,14 @@ public class IngestionServiceImpl implements IngestionService{
 
         analyticsService.performBioMechanicalAnalysis(dataPoint);
 
+        // STEP ID LOGIC:
+        // Agar stance hai, toh last stance ka ID continue karo,
+        // agar swing hai (ya naya stance start ho raha hai), toh naya ID banao.
+        UUID stepId = determineStepIdForPoint(activeSession.getId(), dataPoint);
+        dataPoint.setStepId(stepId);
+
         dataPointRepository.save(dataPoint);
+        snapshotService.checkAndTriggerSnapshots(activeSession);
     }
 
     private GaitSession createNewSession(User user) {
@@ -83,4 +92,18 @@ public class IngestionServiceImpl implements IngestionService{
         newSession.setStartTime(LocalDateTime.now());
         return sessionRepository.save(newSession);
     }
+
+    private UUID determineStepIdForPoint(UUID sessionId, GaitDataPoint dp) {
+        // Agar swing hai, toh naya ID do (kyunki stance khatam ho gaya)
+        if (dp.getIsSwingPhase()) {
+            return UUID.randomUUID();
+        }
+
+        // Agar Stance hai, toh pichla stance ID dhoondo
+        return dataPointRepository.findTopBySessionIdAndFootSideOrderByTimestampDesc(sessionId, dp.getFootSide())
+                .map(GaitDataPoint::getStepId)
+                .orElse(UUID.randomUUID());
+    }
+
+
 }

@@ -5,6 +5,8 @@ import com.gait.biomedicaltwin.repositories.GaitDataPointRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+
 @Service
 @RequiredArgsConstructor
 public class AnalyticsServiceImpl implements AnalyticsService{
@@ -28,10 +30,13 @@ public class AnalyticsServiceImpl implements AnalyticsService{
 
         boolean isSwing = false;
         if (lastDp != null) {
-            double pitchDiff = Math.abs(dp.getPitchAngleY() - lastDp.getPitchAngleY());
-            isSwing = pitchDiff > PITCH_DIFF_THRESHOLD;
+            long timeDiff = Duration.between(lastDp.getTimestamp(), dp.getTimestamp()).toMillis();
+            if (timeDiff > 0) {
+                // Pitch Rate logic: Degrees per millisecond
+                double pitchRate = Math.abs(dp.getPitchAngleY() - lastDp.getPitchAngleY()) / timeDiff;
+                isSwing = pitchRate > 0.05; // 0.05 deg/ms threshold
+            }
         }
-
         dp.setIsSwingPhase(isSwing);
 
         // 2. Trajectory Calculation (Only for Stance Phase)

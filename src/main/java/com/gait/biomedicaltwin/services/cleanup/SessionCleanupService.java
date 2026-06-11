@@ -1,19 +1,15 @@
-package com.gait.biomedicaltwin.services.scheduled;
+package com.gait.biomedicaltwin.services.cleanup;
 
 import com.gait.biomedicaltwin.entities.GaitDataPoint;
-import com.gait.biomedicaltwin.entities.GaitSession;
 import com.gait.biomedicaltwin.repositories.GaitDataPointRepository;
 import com.gait.biomedicaltwin.repositories.GaitSessionRepository;
 import com.gait.biomedicaltwin.repositories.GaitSnapshotRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -43,7 +39,7 @@ public class SessionCleanupService {
 
             // 4. Archive mark karo
             var session = sessionRepository.findById(sessionId).orElseThrow();
-            session.setIsArchived(true);
+            session.setArchived(true);
             sessionRepository.save(session);
         }
     }
@@ -55,9 +51,10 @@ public class SessionCleanupService {
 
             File file = new File(dir, "Session_" + sessionId + ".csv");
             try (FileWriter writer = new FileWriter(file)) {
-                // Header ko entity fields ke sequence mein rakha hai
-                writer.append("Timestamp,TrajectoryX,TrajectoryY,TrajectoryZ,RollOverParity,PitchAngleY,FootRollAngleX,IsSwingPhase\n");
+                // Header (Zaroori fields)
+                writer.append("Timestamp,TrajectoryX,TrajectoryY,TrajectoryZ,RollOverParity,PitchAngleY,RollAngleX,IsSwingPhase\n");
 
+                // Data
                 for (GaitDataPoint p : points) {
                     writer.append(p.toCsvLine());
                 }

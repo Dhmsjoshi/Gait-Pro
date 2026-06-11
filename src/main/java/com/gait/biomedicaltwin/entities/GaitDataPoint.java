@@ -51,6 +51,9 @@ public class GaitDataPoint extends BaseAuditModel{
     @Column(name = "humidity_rh",columnDefinition = "DECIMAL(4,2)")
     private Double humidityRh;
 
+    @Column(name = "step_id")
+    private UUID stepId; // for grouping
+
     // --- CALCULATED BIO-MECHANICAL METRICS ---
 
     @Column(name = "stance_phase_duration_ms")
@@ -95,5 +98,17 @@ public class GaitDataPoint extends BaseAuditModel{
     @Transient
     public UUID getSessionId() {
         return session != null ? session.getId() : null;
+    }
+
+    public String toCsvLine() {
+        return String.format("%s,%s,%s,%s,%s,%s,%s,%b\n",
+                this.timestamp,
+                this.trajectoryX,
+                this.trajectoryY,
+                this.trajectoryZ,
+                this.rollOverParity,
+                this.pitchAngleY,           // Aapki entity mein hai
+                this.footRollAngleX,        // Aapki entity mein ye naam hai
+                this.isSwingPhase);         // Aapki entity mein hai
     }
 }

@@ -37,4 +37,7 @@ public class GaitSession extends BaseAuditModel {
     @OneToMany(mappedBy = "session", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     @BatchSize(size = 20)
     private List<GaitDataPoint> dataPoints;
+
+    @Column(name = "is_archived", nullable = false)
+    private Boolean isArchived = false;
 }
