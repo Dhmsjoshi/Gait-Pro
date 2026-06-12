@@ -16,7 +16,7 @@ public class GaitSnapshot extends BaseAuditModel{
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "session_id")
+    @JoinColumn(name = "session_id",nullable = false)
     private GaitSession session;
 
     private Double distanceInterval; // 250, 500, 750, 1000

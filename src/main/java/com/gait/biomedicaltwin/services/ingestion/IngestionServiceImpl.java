@@ -32,12 +32,12 @@ public class IngestionServiceImpl implements IngestionService{
 
     @Override
     public void saveAndAnalyze(RawSensorDto dto) {
-        //Here we will ensure that user has been added in db before his analysis
+        // Here we will ensure that user has been added in db before his analysis
         // 1. User Check
         User user = userRepository.findById(dto.userId())
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        //check height
+        // check height
         if (user.getHeightCm() == null || user.getHeightCm() <= 0) {
             throw new RuntimeException("User height not configured for biometric analysis. User ID: " + user.getId());
         }
@@ -46,9 +46,9 @@ public class IngestionServiceImpl implements IngestionService{
         GaitSession activeSession = sessionRepository.findByUserIdAndEndTimeIsNull(user.getId())
                 .orElse(null);
 
-        // 3. Logic: Last Data Point check karo (Efficiency: O(1) query)
+        // 3. Logic: Last Data Point check karo (FIXED METHOD NAME)
         if (activeSession != null) {
-            LocalDateTime lastDataTime = dataPointRepository.findTopBySessionIdOrderByTimestampDesc(activeSession.getId())
+            LocalDateTime lastDataTime = dataPointRepository.findTopBySession_IdOrderByTimestampDesc(activeSession.getId())
                     .map(GaitDataPoint::getTimestamp)
                     .orElse(activeSession.getStartTime());
 
@@ -99,11 +99,10 @@ public class IngestionServiceImpl implements IngestionService{
             return UUID.randomUUID();
         }
 
-        // Agar Stance hai, toh pichla stance ID dhoondo
-        return dataPointRepository.findTopBySessionIdAndFootSideOrderByTimestampDesc(sessionId, dp.getFootSide())
+        // Agar Stance hai, toh pichla stance ID dhoondo (FIXED METHOD NAME)
+        return dataPointRepository.findTopBySession_IdAndFootSideOrderByTimestampDesc(sessionId, dp.getFootSide())
                 .map(GaitDataPoint::getStepId)
                 .orElse(UUID.randomUUID());
     }
-
 
 }

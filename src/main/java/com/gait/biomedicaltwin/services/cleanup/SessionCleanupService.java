@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.util.List;
@@ -39,7 +40,7 @@ public class SessionCleanupService {
 
             // 4. Archive mark karo
             var session = sessionRepository.findById(sessionId).orElseThrow();
-            session.setArchived(true);
+            session.setIsArchived(true);
             sessionRepository.save(session);
         }
     }
@@ -51,10 +52,9 @@ public class SessionCleanupService {
 
             File file = new File(dir, "Session_" + sessionId + ".csv");
             try (FileWriter writer = new FileWriter(file)) {
-                // Header (Zaroori fields)
-                writer.append("Timestamp,TrajectoryX,TrajectoryY,TrajectoryZ,RollOverParity,PitchAngleY,RollAngleX,IsSwingPhase\n");
+                // Header ko entity fields ke sequence mein rakha hai
+                writer.append("Timestamp,TrajectoryX,TrajectoryY,TrajectoryZ,RollOverParity,PitchAngleY,FootRollAngleX,IsSwingPhase\n");
 
-                // Data
                 for (GaitDataPoint p : points) {
                     writer.append(p.toCsvLine());
                 }

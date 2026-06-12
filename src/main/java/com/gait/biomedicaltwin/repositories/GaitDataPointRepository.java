@@ -16,19 +16,21 @@ import java.util.UUID;
 
 @Repository
 public interface GaitDataPointRepository extends JpaRepository<GaitDataPoint, Long> {
-    // --- EXISTING METHODS ---
-    GaitDataPoint findTopBySessionIdAndFootSideNotOrderByTimestampDesc(UUID sessionId, FootSide footSide);
+    // --- DERIVED QUERIES (FIXED PROPERTY EXPRESSIONS USING '_') ---
+    GaitDataPoint findTopBySession_IdAndFootSideNotOrderByTimestampDesc(UUID sessionId, FootSide footSide);
+
     List<GaitDataPoint> findTop20BySessionUserIdOrderByTimestampDesc(UUID userId);
-    Optional<GaitDataPoint> findTopBySessionIdOrderByTimestampDesc(UUID sessionId);
-    List<GaitDataPoint> findBySessionIdAndFootSide(UUID sessionId, FootSide side);
-    Optional<GaitDataPoint> findTopBySessionIdAndFootSideOrderByTimestampDesc(UUID sessionId, FootSide side);
+
+    Optional<GaitDataPoint> findTopBySession_IdOrderByTimestampDesc(UUID sessionId);
+
+    List<GaitDataPoint> findBySession_IdAndFootSide(UUID sessionId, FootSide side);
+
+    Optional<GaitDataPoint> findTopBySession_IdAndFootSideOrderByTimestampDesc(UUID sessionId, FootSide side);
 
     // --- CLEANUP & ARCHIVAL METHODS ---
-    // Session ke saare points fetch karne ke liye (CSV export ke liye)
     @Query("SELECT d FROM GaitDataPoint d WHERE d.session.id = :sessionId")
     List<GaitDataPoint> findBySessionId(@Param("sessionId") UUID sessionId);
 
-    // Session ke saare points delete karne ke liye (Cleanup service ke liye)
     @Modifying
     @Transactional
     @Query("DELETE FROM GaitDataPoint d WHERE d.session.id = :sessionId")
@@ -47,6 +49,5 @@ public interface GaitDataPointRepository extends JpaRepository<GaitDataPoint, Lo
     @Query("SELECT AVG(d.symmetryIndex) FROM GaitDataPoint d WHERE d.stepId IN :stepIds")
     Double calculateAvgSymmetryByStepIds(@Param("stepIds") List<UUID> stepIds);
 
-    // Step IDs ke basis par points nikalne ke liye (Curve JSON generate karne ke liye)
     List<GaitDataPoint> findByStepIdIn(List<UUID> stepIds);
 }

@@ -23,9 +23,9 @@ public class AnalyticsServiceImpl implements AnalyticsService{
     @Override
     public void performBioMechanicalAnalysis(GaitDataPoint dp) {
 
-        // 1. Pitch Rate Gating Logic (Swing vs Stance)
+        // 1. Pitch Rate Gating Logic (Swing vs Stance) - FIXED METHOD NAME
         GaitDataPoint lastDp = dataPointRepository
-                .findTopBySessionIdOrderByTimestampDesc(dp.getSession().getId())
+                .findTopBySession_IdOrderByTimestampDesc(dp.getSession().getId())
                 .orElse(null);
 
         boolean isSwing = false;
@@ -85,9 +85,9 @@ public class AnalyticsServiceImpl implements AnalyticsService{
             dp.setCurrentCadence(calculatedCadence);
         }
 
-        // Symmetry Index Logic
+        // Symmetry Index Logic - FIXED METHOD NAME
         GaitDataPoint lastStep = dataPointRepository
-                .findTopBySessionIdAndFootSideNotOrderByTimestampDesc(
+                .findTopBySession_IdAndFootSideNotOrderByTimestampDesc(
                         dp.getSession().getId(),
                         dp.getFootSide()
                 );
