@@ -19,10 +19,13 @@ public class GaitSession extends BaseAuditModel {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(columnDefinition = "VARCHAR(36)")
+    @org.hibernate.annotations.JdbcTypeCode(java.sql.Types.VARCHAR)
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", nullable = false)
+    @JoinColumn(name = "user_id", nullable = false, columnDefinition = "VARCHAR(36)")
+    @org.hibernate.annotations.JdbcTypeCode(java.sql.Types.VARCHAR)
     private User user;
 
     @Column(name = "start_time", nullable = false)

@@ -23,7 +23,8 @@ public class GaitDataPoint extends BaseAuditModel{
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "session_id",  nullable = false)
+    @JoinColumn(name = "session_id",  nullable = false, columnDefinition = "VARCHAR(36)")
+    @org.hibernate.annotations.JdbcTypeCode(java.sql.Types.VARCHAR)
     @JsonIgnore
     private GaitSession session;
 
@@ -51,7 +52,8 @@ public class GaitDataPoint extends BaseAuditModel{
     @Column(name = "humidity_rh",columnDefinition = "DECIMAL(4,2)")
     private Double humidityRh;
 
-    @Column(name = "step_id")
+    @Column(name = "step_id", columnDefinition = "VARCHAR(36)")
+    @org.hibernate.annotations.JdbcTypeCode(java.sql.Types.VARCHAR)
     private UUID stepId; // for grouping
 
     // --- CALCULATED BIO-MECHANICAL METRICS ---

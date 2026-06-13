@@ -12,11 +12,15 @@ import java.util.UUID;
 @Setter
 @Table(name = "gait_snapshots")
 public class GaitSnapshot extends BaseAuditModel{
-    @Id @GeneratedValue(strategy = GenerationType.UUID)
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(columnDefinition = "VARCHAR(36)")
+    @org.hibernate.annotations.JdbcTypeCode(java.sql.Types.VARCHAR)
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "session_id",nullable = false)
+    @JoinColumn(name = "session_id", nullable = false, columnDefinition = "VARCHAR(36)")
+    @org.hibernate.annotations.JdbcTypeCode(java.sql.Types.VARCHAR)
     private GaitSession session;
 
     private Double distanceInterval; // 250, 500, 750, 1000

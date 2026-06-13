@@ -1,7 +1,7 @@
 -- 1. USERS TABLE
 CREATE TABLE users
 (
-    id                            BINARY(16)   NOT NULL,
+    id                            VARCHAR(36)  NOT NULL, -- ✨ Changed to VARCHAR(36)
     created_at                    DATETIME     NOT NULL,
     updated_at                    DATETIME     NULL,
     name                          VARCHAR(100) NOT NULL,
@@ -16,10 +16,10 @@ CREATE TABLE users
 -- 2. GAIT SESSIONS TABLE
 CREATE TABLE gait_sessions
 (
-    id                   BINARY(16) NOT NULL,
+    id                   VARCHAR(36) NOT NULL, -- ✨ Changed to VARCHAR(36)
     created_at           DATETIME   NOT NULL,
     updated_at           DATETIME   NULL,
-    user_id              BINARY(16) NOT NULL,
+    user_id              VARCHAR(36) NOT NULL, -- ✨ Changed to VARCHAR(36)
     start_time           DATETIME   NOT NULL,
     end_time             DATETIME   NULL,
     overall_health_score DOUBLE     NULL,
@@ -33,7 +33,7 @@ CREATE TABLE gait_data_points
     id                       BIGINT AUTO_INCREMENT NOT NULL,
     created_at               DATETIME    NOT NULL,
     updated_at               DATETIME    NULL,
-    session_id               BINARY(16)  NOT NULL,
+    session_id               VARCHAR(36)  NOT NULL, -- ✨ Changed to VARCHAR(36)
     timestamp                DATETIME    NOT NULL,
     foot_side                VARCHAR(10) NOT NULL,
     impact_shockwave_z       DECIMAL(5, 2) NULL,
@@ -41,7 +41,7 @@ CREATE TABLE gait_data_points
     pitch_angle_y            DECIMAL(5, 2) NULL,
     temperature_c            DECIMAL(4, 2) NULL,
     humidity_rh              DECIMAL(4, 2) NULL,
-    step_id                  BINARY(16)  NULL,
+    step_id                  VARCHAR(36)  NULL, -- ✨ Changed to VARCHAR(36)
     stance_phase_duration_ms BIGINT      NULL,
     effective_flex_length    DECIMAL(5, 2) NULL,
     current_cadence          INT         NULL,
@@ -60,10 +60,10 @@ CREATE TABLE gait_data_points
 -- 4. GAIT SNAPSHOTS TABLE
 CREATE TABLE gait_snapshots
 (
-    id                 BINARY(16)   NOT NULL,
+    id                 VARCHAR(36)   NOT NULL, -- ✨ Changed to VARCHAR(36)
     created_at         DATETIME     NOT NULL,
     updated_at         DATETIME     NULL,
-    session_id         BINARY(16)   NOT NULL,
+    session_id         VARCHAR(36)   NOT NULL, -- ✨ Changed to VARCHAR(36)
     distance_interval  DOUBLE       NULL,
     foot_side          VARCHAR(10)  NULL,
     trajectory_json    TEXT         NULL,
@@ -73,25 +73,11 @@ CREATE TABLE gait_snapshots
     CONSTRAINT pk_gait_snapshots PRIMARY KEY (id)
 );
 
--- --- INDEXES FOR PERFORMANCE OPTIMIZATION ---
-
--- Data point lookup Optimization (Aapki Entity ke Index se matched)
+-- --- INDEXES AND FOREIGN KEYS SAME RAHENGE ---
 CREATE INDEX idx_session_timestamp ON gait_data_points (session_id, timestamp);
-
--- User session history lookup Optimization (Aapki Entity ke Index se matched)
 CREATE INDEX idx_user_sessions ON gait_sessions (user_id);
-
--- Snapshot fetch performance Optimization
 CREATE INDEX idx_snapshot_session ON gait_snapshots (session_id);
 
-
--- --- FOREIGN KEY CONSTRAINTS ---
-
-ALTER TABLE gait_data_points
-    ADD CONSTRAINT FK_GAIT_DATA_POINTS_ON_SESSION FOREIGN KEY (session_id) REFERENCES gait_sessions (id);
-
-ALTER TABLE gait_sessions
-    ADD CONSTRAINT FK_GAIT_SESSIONS_ON_USER FOREIGN KEY (user_id) REFERENCES users (id);
-
-ALTER TABLE gait_snapshots
-    ADD CONSTRAINT FK_GAIT_SNAPSHOTS_ON_SESSION FOREIGN KEY (session_id) REFERENCES gait_sessions (id);
+ALTER TABLE gait_data_points ADD CONSTRAINT FK_GAIT_DATA_POINTS_ON_SESSION FOREIGN KEY (session_id) REFERENCES gait_sessions (id);
+ALTER TABLE gait_sessions ADD CONSTRAINT FK_GAIT_SESSIONS_ON_USER FOREIGN KEY (user_id) REFERENCES users (id);
+ALTER TABLE gait_snapshots ADD CONSTRAINT FK_GAIT_SNAPSHOTS_ON_SESSION FOREIGN KEY (session_id) REFERENCES gait_sessions (id);

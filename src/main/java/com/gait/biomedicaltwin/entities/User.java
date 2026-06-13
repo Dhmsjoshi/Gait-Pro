@@ -15,6 +15,8 @@ public class User extends BaseAuditModel{
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(columnDefinition = "VARCHAR(36)")
+    @org.hibernate.annotations.JdbcTypeCode(java.sql.Types.VARCHAR)
     private UUID id;
 
     @Column(nullable = false, length = 100)
