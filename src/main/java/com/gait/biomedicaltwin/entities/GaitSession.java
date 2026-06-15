@@ -43,4 +43,7 @@ public class GaitSession extends BaseAuditModel {
 
     @Column(name = "is_archived", nullable = false)
     private Boolean isArchived = false;
+
+    @Column(name = "is_processed", nullable = false)
+    private Boolean isProcessed = false;
 }

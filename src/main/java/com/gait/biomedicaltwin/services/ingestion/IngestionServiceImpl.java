@@ -9,8 +9,10 @@ import com.gait.biomedicaltwin.repositories.GaitDataPointRepository;
 import com.gait.biomedicaltwin.repositories.GaitSessionRepository;
 import com.gait.biomedicaltwin.repositories.UserRepository;
 import com.gait.biomedicaltwin.services.analytics.AnalyticsService;
+import com.gait.biomedicaltwin.services.postprocess.GaitPostProcessingService;
 import com.gait.biomedicaltwin.services.snapshot.SnapshotService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,23 +23,22 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 @Transactional
+@Slf4j
 public class IngestionServiceImpl implements IngestionService{
-
     private final UserRepository userRepository;
     private final GaitDataPointRepository dataPointRepository;
     private final GaitSessionRepository sessionRepository;
     private final AnalyticsService analyticsService;
-    private final SnapshotService snapshotService;
+    private final GaitPostProcessingService postProcessingService;
+
     private static final long SESSION_TIMEOUT_MINUTES = 5;
 
     @Override
     public void saveAndAnalyze(RawSensorDto dto) {
-        // Here we will ensure that user has been added in db before his analysis
         // 1. User Check
         User user = userRepository.findById(dto.userId())
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        // check height
         if (user.getHeightCm() == null || user.getHeightCm() <= 0) {
             throw new RuntimeException("User height not configured for biometric analysis. User ID: " + user.getId());
         }
@@ -46,7 +47,7 @@ public class IngestionServiceImpl implements IngestionService{
         GaitSession activeSession = sessionRepository.findByUserIdAndEndTimeIsNull(user.getId())
                 .orElse(null);
 
-        // 3. Logic: Last Data Point check karo (FIXED METHOD NAME)
+        // 3. Session Timeout & Creation Logic
         if (activeSession != null) {
             LocalDateTime lastDataTime = dataPointRepository.findTopBySession_IdOrderByTimestampDesc(activeSession.getId())
                     .map(GaitDataPoint::getTimestamp)
@@ -55,13 +56,18 @@ public class IngestionServiceImpl implements IngestionService{
             if (Duration.between(lastDataTime, LocalDateTime.now()).toMinutes() >= SESSION_TIMEOUT_MINUTES) {
                 activeSession.setEndTime(LocalDateTime.now());
                 sessionRepository.save(activeSession);
+
+                // 🔥 Trigger background calculations for the closed session
+                log.info("📢 Session timeout detected. Triggering background calculations for Session: {}", activeSession.getId());
+                postProcessingService.processSessionMetricsAsync(activeSession.getId());
+
                 activeSession = createNewSession(user);
             }
         } else {
             activeSession = createNewSession(user);
         }
 
-        // 4. Mapping & Analytics
+        // 4. Mapping MQTT Dto to Database Entity
         GaitDataPoint dataPoint = new GaitDataPoint();
         dataPoint.setSession(activeSession);
         dataPoint.setTimestamp(LocalDateTime.now());
@@ -74,32 +80,31 @@ public class IngestionServiceImpl implements IngestionService{
         dataPoint.setStancePhaseDurationMs(dto.stancePhaseDurationMs());
         dataPoint.setStepIntervalMs(dto.stepIntervalMs());
 
+        // Real-Time Analysis (Trajectory, Swing Phase Gating & Basic Faults)
         analyticsService.performBioMechanicalAnalysis(dataPoint);
 
-        // STEP ID LOGIC:
-        // Agar stance hai, toh last stance ka ID continue karo,
-        // agar swing hai (ya naya stance start ho raha hai), toh naya ID banao.
+        // STEP ID LOGIC
         UUID stepId = determineStepIdForPoint(activeSession.getId(), dataPoint);
         dataPoint.setStepId(stepId);
 
+        // Raw points storage
         dataPointRepository.save(dataPoint);
-        snapshotService.checkAndTriggerSnapshots(activeSession);
+
+        // 🔥 REMOVED snapshotService call from here to protect data consistency
     }
 
     private GaitSession createNewSession(User user) {
         GaitSession newSession = new GaitSession();
         newSession.setUser(user);
         newSession.setStartTime(LocalDateTime.now());
+        newSession.setIsProcessed(false);
         return sessionRepository.save(newSession);
     }
 
     private UUID determineStepIdForPoint(UUID sessionId, GaitDataPoint dp) {
-        // Agar swing hai, toh naya ID do (kyunki stance khatam ho gaya)
         if (dp.getIsSwingPhase()) {
             return UUID.randomUUID();
         }
-
-        // Agar Stance hai, toh pichla stance ID dhoondo (FIXED METHOD NAME)
         return dataPointRepository.findTopBySession_IdAndFootSideOrderByTimestampDesc(sessionId, dp.getFootSide())
                 .map(GaitDataPoint::getStepId)
                 .orElse(UUID.randomUUID());

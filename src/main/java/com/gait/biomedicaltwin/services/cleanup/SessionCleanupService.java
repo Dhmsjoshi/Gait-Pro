@@ -21,11 +21,18 @@ public class SessionCleanupService {
     private final GaitSnapshotRepository snapshotRepository;
     private final GaitSessionRepository sessionRepository;
 
-    // CSV kahan save hogi uska path (Windows/Linux ke liye flexible)
     private final String EXPORT_PATH = System.getProperty("user.home") + "/GaitDataExports/";
 
     @Transactional
     public void archiveAndCleanupSession(UUID sessionId) {
+        var session = sessionRepository.findById(sessionId)
+                .orElseThrow(() -> new RuntimeException("Session not found"));
+
+        // 🔥 CRITICAL PROTECTION GATE: Ensure asynchronous background math pool is completed!
+        if (session.getIsProcessed() == null || !session.getIsProcessed()) {
+            throw new RuntimeException("Cannot abort or delete data! Asynchronous analytics metric calculations are still pending.");
+        }
+
         // 1. Check karo snapshots ban gaye hain
         if (snapshotRepository.countBySessionId(sessionId) == 0) {
             throw new RuntimeException("Snapshots not generated yet, aborting deletion!");
@@ -39,7 +46,6 @@ public class SessionCleanupService {
             dataPointRepository.deleteBySessionId(sessionId);
 
             // 4. Archive mark karo
-            var session = sessionRepository.findById(sessionId).orElseThrow();
             session.setIsArchived(true);
             sessionRepository.save(session);
         }
@@ -52,7 +58,6 @@ public class SessionCleanupService {
 
             File file = new File(dir, "Session_" + sessionId + ".csv");
             try (FileWriter writer = new FileWriter(file)) {
-                // Header ko entity fields ke sequence mein rakha hai
                 writer.append("Timestamp,TrajectoryX,TrajectoryY,TrajectoryZ,RollOverParity,PitchAngleY,FootRollAngleX,IsSwingPhase\n");
 
                 for (GaitDataPoint p : points) {
@@ -65,4 +70,8 @@ public class SessionCleanupService {
             return false;
         }
     }
+
+
+
+
 }

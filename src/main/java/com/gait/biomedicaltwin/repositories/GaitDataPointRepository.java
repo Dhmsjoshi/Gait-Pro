@@ -50,4 +50,10 @@ public interface GaitDataPointRepository extends JpaRepository<GaitDataPoint, Lo
     Double calculateAvgSymmetryByStepIds(@Param("stepIds") List<UUID> stepIds);
 
     List<GaitDataPoint> findByStepIdIn(List<UUID> stepIds);
+
+    @Query("SELECT COUNT(d) FROM GaitDataPoint d WHERE d.stepId IN :stepIds")
+    Long countByStepIdIn(@Param("stepIds") List<UUID> stepIds);
+
+    @Query("SELECT COUNT(d) FROM GaitDataPoint d WHERE d.stepId IN :stepIds AND d.isFatigued = true")
+    Long countByStepIdInAndIsFatiguedTrue(@Param("stepIds") List<UUID> stepIds);
 }
