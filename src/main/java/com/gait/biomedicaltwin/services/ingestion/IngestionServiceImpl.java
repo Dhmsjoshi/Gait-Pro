@@ -43,8 +43,8 @@ public class IngestionServiceImpl implements IngestionService{
             throw new RuntimeException("User height not configured for biometric analysis. User ID: " + user.getId());
         }
 
-        // 2. Active Session Lookup
-        GaitSession activeSession = sessionRepository.findByUserIdAndEndTimeIsNull(user.getId())
+        // 2. Active Session Lookup (🔥 Production Safety Fix to avoid NonUniqueResultException)
+        GaitSession activeSession = sessionRepository.findFirstByUser_IdAndEndTimeIsNullOrderByCreatedAtDesc(user.getId())
                 .orElse(null);
 
         // 3. Session Timeout & Creation Logic
@@ -108,6 +108,25 @@ public class IngestionServiceImpl implements IngestionService{
         return dataPointRepository.findTopBySession_IdAndFootSideOrderByTimestampDesc(sessionId, dp.getFootSide())
                 .map(GaitDataPoint::getStepId)
                 .orElse(UUID.randomUUID());
+    }
+
+    // 🔥 ADDED THE IMPLEMENTATION HERE FOR THE SIMULATOR TEST
+    @Override
+    public void forceCloseSessionForTest(String userId) {
+        GaitSession activeSession = sessionRepository.findFirstByUser_IdAndEndTimeIsNullOrderByCreatedAtDesc(UUID.fromString(userId))
+                .orElse(null);
+
+        if (activeSession != null) {
+            activeSession.setEndTime(LocalDateTime.now());
+            sessionRepository.save(activeSession);
+
+            log.info("🔌 Test complete! Forcing close and async processing for Session: {}", activeSession.getId());
+
+            // Is line se aapka Async config active hoga aur snapshots table populate ho jayega!
+            postProcessingService.processSessionMetricsAsync(activeSession.getId());
+        } else {
+            log.warn("⚠️ No active session found to force close for user: {}", userId);
+        }
     }
 
 }

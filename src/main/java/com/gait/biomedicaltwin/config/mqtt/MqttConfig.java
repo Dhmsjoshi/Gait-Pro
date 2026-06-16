@@ -72,6 +72,7 @@ public class MqttConfig {
         options.setAutomaticReconnect(true);
         options.setConnectionTimeout(30); // ⏳ Timeout badha diya taaki hang na ho
         options.setKeepAliveInterval(60);
+        //options.setMaxInflight(100);
 
         try {
             Resource resource = resourceLoader.getResource(trustStoreLocation);
