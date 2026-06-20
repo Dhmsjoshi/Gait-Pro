@@ -59,6 +59,8 @@ public class MqttConfig {
     @Autowired // <-- Ab Constructor ki zaroorat nahi, Spring ise direct handle karega
     private ResourceLoader resourceLoader;
 
+    private MqttPayloadBridge mqttPayloadBridge;
+
     //MQTT Client factory to setup SSL and Credentials configuration
 
     @Bean
@@ -141,17 +143,10 @@ public class MqttConfig {
     public MessageHandler handler(IngestionService ingestionService, ObjectMapper objectMapper) {
         return message -> {
             String payload = (String) message.getPayload();
-            log.info("Received MQTT Raw Payload: {}", payload);
-            try {
-                // JSON string ko aapke RawSensorDto mein convert karna
-                RawSensorDto dto = objectMapper.readValue(payload, RawSensorDto.class);
+            log.info("🔥 MQTT Incoming Stream Captured: {}", payload);
 
-                // Aapka core architecture method trigger karna
-                ingestionService.saveAndAnalyze(dto);
-                log.info("MQTT Payload successfully processed and analyzed by IngestionService.");
-            } catch (Exception e) {
-                log.error("Error parsing or processing MQTT payload", e);
-            }
+            // Bridge automatic detect karega ki Case 1 chalana hai ya Case 2
+            mqttPayloadBridge.bridgeIncomingPayload(payload);
         };
     }
 //    @Bean
