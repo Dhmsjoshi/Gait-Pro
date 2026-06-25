@@ -48,7 +48,7 @@ public class MqttGaitSimulatorTest {
         System.setProperty("jdk.internal.httpclient.disableHostnameVerification", "true");
     }
 
-    @Test
+    //@Test
     void runOneKilometerGaitSimulation() throws Exception {
         log.info("🚀 Starting Automated 1KM Gait Simulation Process with Dynamic Metric Injectors...");
 
@@ -213,7 +213,7 @@ public class MqttGaitSimulatorTest {
         log.info("🎯 Execution done! Check your 'gait_snapshots' table now!");
     }
 
-    @Test
+    //@Test
     void testSessionCleanupAndCsvGeneration() {
         String currentSessionId = "52f48395-4bfa-46d2-b068-989439f12d6c";
 

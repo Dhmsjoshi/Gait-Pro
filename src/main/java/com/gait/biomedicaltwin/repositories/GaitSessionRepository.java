@@ -18,4 +18,6 @@ public interface GaitSessionRepository extends JpaRepository<GaitSession, UUID> 
 
     Optional<GaitSession> findFirstByUser_IdAndEndTimeIsNullOrderByCreatedAtDesc(UUID userId);
 
+    List<GaitSession> findByEndTimeIsNull();
+
 }
