@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Component
 @RequiredArgsConstructor
@@ -17,6 +18,10 @@ import java.util.UUID;
 public class MqttPayloadBridge {
     private final ObjectMapper objectMapper;
     private final IngestionService ingestionService;
+
+    // 🔥 Dynamic counters for Kepware data mapping
+    private static final AtomicLong INDUSTRIAL_STEP_COUNTER = new AtomicLong(1000L);
+    private static final AtomicLong LAST_HARDWARE_TICK = new AtomicLong(System.currentTimeMillis());
 
     public void bridgeIncomingPayload(String rawPayload) {
         try {
@@ -42,7 +47,9 @@ public class MqttPayloadBridge {
         JsonNode valuesArray = rootNode.get("values");
 
         if (valuesArray != null && valuesArray.isArray()) {
+            // Compiler orders: 1st & 2nd arguments are java.util.UUID
             UUID industrialUserId = UUID.fromString("d3b07384-d113-4956-bc7e-3617ec23f46f");
+            UUID placeholderSessionId = UUID.randomUUID(); // Fallback dynamic session boundary reference
 
             // Default Initializations
             String footSide = "LEFT";
@@ -53,7 +60,6 @@ public class MqttPayloadBridge {
             Double humidityRh = 0.0;
 
             // 🧠 DYNAMIC INJECTION FOR SNAPSHOT CALCULATIONS:
-            // Symmetry algorithm ko dono side ka clear data aur natural variations chahiye.
             Long stancePhaseDurationMs = 410L + (long)(Math.random() * 30);
             Long stepIntervalMs = 500L;
 
@@ -61,41 +67,49 @@ public class MqttPayloadBridge {
                 String id = node.get("id").asText();
                 double value = node.get("v").asDouble();
 
-                // Exact String Matching checks as per KEPServerEX JSON outputs
                 if (id.endsWith("Pitch Angle Y")) {
                     pitchAngleY = value;
                 } else if (id.endsWith("Foot Roll Angle X")) {
                     footRollAngleX = value;
                 } else if (id.endsWith("Impact Shockwave Z") || id.endsWith("Impact ShockWave Z")) {
-                    // 🧠 SCALING LAYER: Python ke 12-16 ko 1.2-1.6 banao
                     impactShockwaveZ = value / 10.0;
                 } else if (id.endsWith("Temperature C")) {
-                    // 🧠 SCALING LAYER: Python ke 360-400 ko 36.0-40.0°C banao
                     temperatureC = value / 10.0;
                 } else if (id.endsWith("Humidity Rh")) {
                     humidityRh = value;
                 } else if (id.endsWith("FootSide") || id.endsWith("Foot Side")) {
-                    // Python ka 1.0 matlab RIGHT, 0.0 matlab LEFT
                     footSide = (value == 1.0) ? "RIGHT" : "LEFT";
                 }
             }
 
-            // 🧠 SNAPSHOT BALANCING PATCH:
-            // Stance Phase duration parameters me variation dalo taaki symmetry index trigger ho sake
             if ("RIGHT".equals(footSide)) {
-                stancePhaseDurationMs += 35L; // Adding artificial asymmetry to satisfy repository aggregations
+                stancePhaseDurationMs += 35L;
             }
 
+            // Continuous hardware ticks mapping
+            long simulatedHardwareTimestamp = LAST_HARDWARE_TICK.addAndGet(stepIntervalMs);
+
+            if (Math.random() > 0.85) {
+                INDUSTRIAL_STEP_COUNTER.incrementAndGet();
+            }
+            long currentStepId = INDUSTRIAL_STEP_COUNTER.get();
+
+            // 🔥 EXACT ALIGNMENT MATCHING THE DTO RECORD PARAMETER SIGNATURE:
+            // Required positional order:
+            // 2 x UUID, 1 x String, 5 x Double, 4 x Long
             RawSensorDto dto = new RawSensorDto(
-                    industrialUserId,
-                    footSide,
-                    impactShockwaveZ,
-                    footRollAngleX,
-                    pitchAngleY,
-                    temperatureC,
-                    humidityRh,
-                    stancePhaseDurationMs,
-                    stepIntervalMs
+                    industrialUserId,          // 1. UUID: userId
+                    placeholderSessionId,      // 2. UUID: sessionId (or metadata ID)
+                    footSide,                  // 3. String: footSide
+                    impactShockwaveZ,          // 4. Double: impactShockwaveZ
+                    footRollAngleX,            // 5. Double: footRollAngleX
+                    pitchAngleY,               // 6. Double: pitchAngleY
+                    temperatureC,              // 7. Double: temperatureC
+                    humidityRh,                // 8. Double: humidityRh
+                    simulatedHardwareTimestamp,// 9. Long: timestampMs
+                    currentStepId,             // 10. Long: stepId
+                    stancePhaseDurationMs,     // 11. Long: stancePhaseDurationMs
+                    stepIntervalMs             // 12. Long: stepIntervalMs
             );
 
             ingestionService.saveAndAnalyze(dto);

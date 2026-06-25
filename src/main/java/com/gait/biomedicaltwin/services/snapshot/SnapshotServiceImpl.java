@@ -30,62 +30,63 @@ public class SnapshotServiceImpl implements SnapshotService {
     @Override
     @Transactional
     public void checkAndTriggerSnapshots(GaitSession session) {
-        double currentDist = calculateProgress(session);
-        int maxInterval = (int) (currentDist / 250);
+        List<GaitDataPoint> allSessionPointsInDb = dataPointRepository.findBySessionId(session.getId());
+        log.info("🔍 [SNAPSHOT-TRIGGER] DB verification scan. Found total processed row metrics: {}", allSessionPointsInDb.size());
 
-        log.info("📊 [SNAPSHOT-TRIGGER] Calculated Total Distance: {}m | Target Max Milestone Interval: {}", currentDist, maxInterval);
-
-        if (maxInterval < 1) {
-            log.warn("⚠️ [SNAPSHOT-TRIGGER] Distance is less than 250m ({}), skipping snapshot evaluation.", currentDist);
+        if (allSessionPointsInDb.isEmpty()) {
+            log.warn("⚠️ [SNAPSHOT-TRIGGER] Context database contains no traces for session, cancelling builder pipeline.");
             return;
         }
 
-        List<GaitDataPoint> allSessionPointsInDb = dataPointRepository.findBySessionId(session.getId());
-        log.info("🔍 [SNAPSHOT-TRIGGER] DB Query verification read returned {} rows for analysis pipeline.", allSessionPointsInDb.size());
+        double currentDist = calculateProgressFromUniqueSteps(session);
+        int maxInterval = (int) (currentDist / 250);
+
+        log.info("📊 [SNAPSHOT-TRIGGER] Cumulative Walk Evaluation: {}m | Available Milestones Block: {}", currentDist, maxInterval);
+
+        if (maxInterval < 1) {
+            log.warn("⚠️ [SNAPSHOT-TRIGGER] Walking metric profile below milestone entry limits ({}m), skipping snapshot generation.", currentDist);
+            return;
+        }
 
         for (int interval = 1; interval <= maxInterval && interval <= 4; interval++) {
             double distance = interval * 250.0;
 
             if (!snapshotRepository.existsBySessionIdAndDistanceInterval(session.getId(), distance)) {
-                log.info("🚀 [SNAPSHOT-TRIGGER] Milestone checkpoint reached: {}m. Initiating builder block...", distance);
+                log.info("🚀 [SNAPSHOT-TRIGGER] Barrier match hit for milestone: {}m. Spawning left/right snapshots...", distance);
                 generateSnapshotForInterval(session, distance, FootSide.LEFT, allSessionPointsInDb);
                 generateSnapshotForInterval(session, distance, FootSide.RIGHT, allSessionPointsInDb);
             } else {
-                log.info("ℹ️ [SNAPSHOT-TRIGGER] Snapshot for {}m already exists. Skipping duplicate execution.", distance);
+                log.info("ℹ️ [SNAPSHOT-TRIGGER] Milestone snapshot configuration for {}m already exists inside records. Skipping.", distance);
             }
         }
     }
 
-    private double calculateProgress(GaitSession session) {
-        Long totalStance = dataPointRepository.sumStanceDurationBySessionId(session.getId());
-        double calculatedDist = (totalStance == null) ? 0.0 : (totalStance / 1000.0) * 1.2;
+    private double calculateProgressFromUniqueSteps(GaitSession session) {
+        long totalUniqueSteps = dataPointRepository.countUniqueStepsBySessionId(session.getId());
 
-        // 💡 FIX: Simulation Dynamic Fallback Layer
-        // Agar virtual formula calculations simulator restrictions ke wajah se 250m se kam reh jati hain,
-        // par DB mein packets aa chuke hain, toh exact telemetry scale (14.5 packets = 1 meter) se bypass data assign karo.
-        if (calculatedDist < 250.0) {
-            long totalPointsCount = dataPointRepository.findBySessionId(session.getId()).size();
-            double simulatedDist = (totalPointsCount / 14.5);
-            log.info("🔄 [SNAPSHOT-MATH-FALLBACK] Pure Stance formula was {}m, fallback calculated distance from {} raw packets: {}m",
-                    calculatedDist, totalPointsCount, simulatedDist);
-            calculatedDist = simulatedDist;
-        }
-        return calculatedDist;
+        double userHeightCm = (session.getUser() != null && session.getUser().getHeightCm() > 0)
+                ? session.getUser().getHeightCm() : 175.0;
+
+        double strideLengthMeters = userHeightCm * 0.00415;
+        double calculatedDistance = totalUniqueSteps * strideLengthMeters;
+
+        log.info("🎯 [BIOMECHANICAL-INTEGRITY] Total Distinct Step IDs: {} | Calibrated Stride Scale: {}m | Total Computed Metres: {}m",
+                totalUniqueSteps, Math.round(strideLengthMeters * 100.0)/100.0, Math.round(calculatedDistance * 100.0)/100.0);
+
+        return calculatedDistance;
     }
 
     @SneakyThrows
     private void generateSnapshotForInterval(GaitSession session, double distance, FootSide side, List<GaitDataPoint> sourcePoints) {
-
         List<GaitDataPoint> sessionSidePoints = sourcePoints.stream()
                 .filter(p -> p.getFootSide() == side)
                 .collect(Collectors.toList());
 
         if (sessionSidePoints.isEmpty()) {
-            log.warn("⚠️ [SNAPSHOT-BUILDER] No points matching FootSide: {} found. Generation skipped.", side);
+            log.warn("⚠️ [SNAPSHOT-BUILDER] Skipping segment builder. Dataset empty matching criteria for foot side: {}", side);
             return;
         }
 
-        // 1. Average Symmetry Index Calculation
         double totalSymmetry = 0.0;
         int symmetryCount = 0;
         for (GaitDataPoint p : sessionSidePoints) {
@@ -96,14 +97,12 @@ public class SnapshotServiceImpl implements SnapshotService {
         }
         double avgSym = (symmetryCount > 0) ? (totalSymmetry / symmetryCount) : 0.0;
 
-        // 2. Fatigue Index Percentage Calculation
         long totalPoints = sessionSidePoints.size();
         long fatiguePoints = sessionSidePoints.stream()
                 .filter(p -> p.getIsFatigued() != null && p.getIsFatigued())
                 .count();
         double fatigueScore = (totalPoints > 0) ? ((double) fatiguePoints / totalPoints) * 100.0 : 0.0;
 
-        // 3. Average Roll Over Parity Calculation
         double totalRosParity = 0.0;
         int rosCount = 0;
         for (GaitDataPoint p : sessionSidePoints) {
@@ -114,10 +113,6 @@ public class SnapshotServiceImpl implements SnapshotService {
         }
         double avgRosParity = (rosCount > 0) ? (totalRosParity / rosCount) : 0.0;
 
-        log.info("📢 [SNAPSHOT-BUILDER-DEBUG] Side: {} | Total Points: {} | Avg Symmetry: {} | Fatigue%: {} | Avg ROS Parity: {}",
-                side, totalPoints, avgSym, fatigueScore, avgRosParity);
-
-        // 4. Downsampling logic for SCADA rendering (Every 5th point selection)
         List<Map<String, Double>> curveData = sessionSidePoints.stream()
                 .filter(p -> p.getId() != null && p.getId().hashCode() % 5 == 0)
                 .map(p -> {
@@ -130,19 +125,17 @@ public class SnapshotServiceImpl implements SnapshotService {
 
         String jsonString = objectMapper.writeValueAsString(curveData);
 
-        // 5. Entity State Generation and Persistence
         GaitSnapshot snapshot = new GaitSnapshot();
         snapshot.setSession(session);
         snapshot.setDistanceInterval(distance);
         snapshot.setFootSide(side);
-
         snapshot.setAvgRosParity(Math.round(avgRosParity * 100.0) / 100.0);
         snapshot.setAvgSymmetryIndex(Math.round(avgSym * 100.0) / 100.0);
         snapshot.setFatigueIndex(Math.round(fatigueScore * 100.0) / 100.0);
         snapshot.setTrajectoryJson(jsonString);
 
         snapshotRepository.save(snapshot);
-        log.info("✅ [SNAPSHOT-SUCCESS] Saved Snapshot for {} foot at {}m! Symmetry: {}, Fatigue: {}, ROS Parity: {}",
-                side, distance, snapshot.getAvgSymmetryIndex(), snapshot.getFatigueIndex(), snapshot.getAvgRosParity());
+        log.info("✅ [SNAPSHOT-SUCCESS] Record saved for {} side at {}m milestone! Symmetry: {}%, Fatigue Index: {}%",
+                side, distance, snapshot.getAvgSymmetryIndex(), snapshot.getFatigueIndex());
     }
 }

@@ -55,13 +55,11 @@ public class GaitPostProcessingServiceImpl implements GaitPostProcessingService{
         int fatigueCount = 0;
         int validSymmetryCount = 0;
 
-        // ==========================================
         // PHASE 1: Complete Mathematical Calculation In-Memory
-        // ==========================================
         log.info("🧮 [POST-PROCESS] Running calculation formulas over loops...");
         for (GaitDataPoint point : allPoints) {
 
-            // 1. Fatigue Logic + Explicit Logs
+            // 1. Fatigue Logic
             Double temp = point.getTemperatureC();
             Integer cadence = point.getCurrentCadence();
 
@@ -71,10 +69,9 @@ public class GaitPostProcessingServiceImpl implements GaitPostProcessingService{
             point.setIsFatigued(isFatigued);
             if (isFatigued) {
                 fatigueCount++;
-                log.debug("🔥 [FATIGUE-HIT] Point ID: {} | Temp: {}°C | Cadence: {}", point.getId(), temp, cadence);
             }
 
-            // 2. Symmetry Logic
+            // 2. Symmetry Logic (🔥 FIXED: System clock fallback completely bypassed here)
             List<GaitDataPoint> oppositeFootPoints = (point.getFootSide() == FootSide.LEFT) ? rightPoints : leftPoints;
             GaitDataPoint matchingStep = findClosestOppositeStep(point, oppositeFootPoints);
 
@@ -95,16 +92,13 @@ public class GaitPostProcessingServiceImpl implements GaitPostProcessingService{
         log.info("📈 [POST-PROCESS] Math Done! Detected Fatigue Points: {}/{} | Matched Symmetry Steps: {}",
                 fatigueCount, allPoints.size(), validSymmetryCount);
 
-        // ==========================================
         // PHASE 2: Forced Database State Syncing via Explicit Saves
-        // ==========================================
         log.info("💾 [POST-PROCESS] Executing Managed State Entity Updates via JPA in batches...");
         List<GaitDataPoint> batchList = new ArrayList<>();
         for (int i = 0; i < allPoints.size(); i++) {
             batchList.add(allPoints.get(i));
 
             if (batchList.size() >= BATCH_SIZE || i == allPoints.size() - 1) {
-                // saveAll + flush explicitly ensures data transitions from memory onto DB transaction segments
                 dataPointRepository.saveAll(batchList);
                 dataPointRepository.flush();
                 batchList.clear();
@@ -112,9 +106,7 @@ public class GaitPostProcessingServiceImpl implements GaitPostProcessingService{
         }
         log.info("✅ [POST-PROCESS] Database successfully updated and flushed.");
 
-        // ==========================================
         // PHASE 3: Milestone Checking
-        // ==========================================
         log.info("🚀 [POST-PROCESS] Instantiating Snapshot Generator Service Layer...");
         snapshotService.checkAndTriggerSnapshots(session);
 
@@ -124,20 +116,25 @@ public class GaitPostProcessingServiceImpl implements GaitPostProcessingService{
         log.info("🎉 [POST-PROCESS] Loop pipeline execution finished cleanly.");
     }
 
+    /**
+     * 🔥 CORE FIX: Finding matching intervals using immutable hardware clock instead of flaky system time
+     */
     private GaitDataPoint findClosestOppositeStep(GaitDataPoint currentPoint, List<GaitDataPoint> oppositePoints) {
         GaitDataPoint closest = null;
         long minDiff = Long.MAX_VALUE;
 
-        for (GaitDataPoint opp : oppositePoints) {
-            if (currentPoint.getTimestamp() == null || opp.getTimestamp() == null) continue;
+        if (currentPoint.getHardwareTimestampMs() == null) return null;
 
-            long diff = Math.abs(Duration.between(currentPoint.getTimestamp(), opp.getTimestamp()).toMillis());
-            if (diff < minDiff && diff <= 1500) {
+        for (GaitDataPoint opp : oppositePoints) {
+            if (opp.getHardwareTimestampMs() == null) continue;
+
+            // Mathematical hardware delta difference evaluation
+            long diff = Math.abs(currentPoint.getHardwareTimestampMs() - opp.getHardwareTimestampMs());
+            if (diff < minDiff && diff <= 1500) { // Max 1.5-second biomechanical sync gating
                 minDiff = diff;
                 closest = opp;
             }
         }
         return closest;
-
     }
 }

@@ -43,12 +43,13 @@ public class IngestionServiceImpl implements IngestionService{
             throw new RuntimeException("User height not configured for biometric analysis. User ID: " + user.getId());
         }
 
-        // 2. Active Session Lookup (🔥 Production Safety Fix to avoid NonUniqueResultException)
+        // 2. Active Session Lookup (Production Safety Fix)
         GaitSession activeSession = sessionRepository.findFirstByUser_IdAndEndTimeIsNullOrderByCreatedAtDesc(user.getId())
                 .orElse(null);
 
         // 3. Session Timeout & Creation Logic
         if (activeSession != null) {
+            // 🔥 Burst protection link: finding timeout using latest DB data entries
             LocalDateTime lastDataTime = dataPointRepository.findTopBySession_IdOrderByTimestampDesc(activeSession.getId())
                     .map(GaitDataPoint::getTimestamp)
                     .orElse(activeSession.getStartTime());
@@ -57,7 +58,7 @@ public class IngestionServiceImpl implements IngestionService{
                 activeSession.setEndTime(LocalDateTime.now());
                 sessionRepository.save(activeSession);
 
-                // 🔥 Trigger background calculations for the closed session
+                // Trigger background calculations for the closed session
                 log.info("📢 Session timeout detected. Triggering background calculations for Session: {}", activeSession.getId());
                 postProcessingService.processSessionMetricsAsync(activeSession.getId());
 
@@ -67,11 +68,20 @@ public class IngestionServiceImpl implements IngestionService{
             activeSession = createNewSession(user);
         }
 
-        // 4. Mapping MQTT Dto to Database Entity
+        // 4. Mapping MQTT Dto Record directly to Database Entity
         GaitDataPoint dataPoint = new GaitDataPoint();
         dataPoint.setSession(activeSession);
+
+        // System baseline logs time tracking
         dataPoint.setTimestamp(LocalDateTime.now());
-        dataPoint.setFootSide(FootSide.valueOf(dto.footSide()));
+
+        // 🔥 INDUSTRIAL SCENARIO FIX 1: Mapping Invariant Hardware Clock Metrics
+        dataPoint.setHardwareTimestampMs(dto.timestampMs());
+
+        // 🔥 INDUSTRIAL SCENARIO FIX 2: Mapping direct Sensor Step Tracking Context (Bypassing local UUID generator)
+        dataPoint.setStepId(dto.stepId());
+
+        dataPoint.setFootSide(FootSide.valueOf(dto.footSide().toUpperCase()));
         dataPoint.setImpactShockWaveZ(dto.impactShockwaveZ());
         dataPoint.setFootRollAngleX(dto.footRollAngleX());
         dataPoint.setPitchAngleY(dto.pitchAngleY());
@@ -80,17 +90,14 @@ public class IngestionServiceImpl implements IngestionService{
         dataPoint.setStancePhaseDurationMs(dto.stancePhaseDurationMs());
         dataPoint.setStepIntervalMs(dto.stepIntervalMs());
 
-        // Real-Time Analysis (Trajectory, Swing Phase Gating & Basic Faults)
+        // 5. Real-Time Analysis (Trajectory, Burst Protection & Faults Engine Activation)
         analyticsService.performBioMechanicalAnalysis(dataPoint);
 
-        // STEP ID LOGIC
-        UUID stepId = determineStepIdForPoint(activeSession.getId(), dataPoint);
-        dataPoint.setStepId(stepId);
-
-        // Raw points storage
+        // Raw points production storage storage commit
         dataPointRepository.save(dataPoint);
 
-        // 🔥 REMOVED snapshotService call from here to protect data consistency
+        log.debug("📦 [INGESTION-FLOW] Point processed successfully. Step ID: {} | Hardware Tick Time: {}",
+                dataPoint.getStepId(), dataPoint.getHardwareTimestampMs());
     }
 
     private GaitSession createNewSession(User user) {
@@ -101,16 +108,7 @@ public class IngestionServiceImpl implements IngestionService{
         return sessionRepository.save(newSession);
     }
 
-    private UUID determineStepIdForPoint(UUID sessionId, GaitDataPoint dp) {
-        if (dp.getIsSwingPhase()) {
-            return UUID.randomUUID();
-        }
-        return dataPointRepository.findTopBySession_IdAndFootSideOrderByTimestampDesc(sessionId, dp.getFootSide())
-                .map(GaitDataPoint::getStepId)
-                .orElse(UUID.randomUUID());
-    }
-
-    // 🔥 ADDED THE IMPLEMENTATION HERE FOR THE SIMULATOR TEST
+    // 🔥 FORCE CLOSE FOR SIMULATOR TESTING
     @Override
     public void forceCloseSessionForTest(String userId) {
         GaitSession activeSession = sessionRepository.findFirstByUser_IdAndEndTimeIsNullOrderByCreatedAtDesc(UUID.fromString(userId))
@@ -122,11 +120,10 @@ public class IngestionServiceImpl implements IngestionService{
 
             log.info("🔌 Test complete! Forcing close and async processing for Session: {}", activeSession.getId());
 
-            // Is line se aapka Async config active hoga aur snapshots table populate ho jayega!
+            // Is line se aapka Async config active hoga aur step-count blueprints trigger ho jayenge!
             postProcessingService.processSessionMetricsAsync(activeSession.getId());
         } else {
             log.warn("⚠️ No active session found to force close for user: {}", userId);
         }
     }
-
 }

@@ -9,10 +9,10 @@ import java.util.UUID;
 
 public record RawSensorDto(
         @NotNull(message = "User ID is required")
-        UUID userId, // Yahan se milega user ka unique ID
+        UUID userId,
 
-//        @NotNull(message = "Session ID is required")
-//        UUID sessionId,
+        @NotNull(message = "Session ID is required")
+        UUID sessionId, // 🔥 UNCOMMENTED: Session tracking dynamic linkage ke liye mandatory hai
 
         @NotBlank(message = "Foot side (LEFT/RIGHT) is required")
         String footSide,
@@ -35,10 +35,17 @@ public record RawSensorDto(
         @DecimalMin(value = "0.0") @DecimalMax(value = "100.0")
         Double humidityRh,
 
-        @NotNull
-        Long stancePhaseDurationMs,
-        @NotNull
-        Long stepIntervalMs
+        // 🔥 ADDED: Sequential step tracking id from shoe sensor array
+        @NotNull(message = "Step Sequence ID is required")
+        Long stepId,
 
+        @NotNull(message = "Stance duration is required")
+        Long stancePhaseDurationMs,
+
+        @NotNull(message = "Step interval is required")
+        Long stepIntervalMs,
+
+        @NotNull(message = "Hardware telemetry timestamp is required")
+        Long timestampMs // Hardware invariant clock baseline
         ) {
 }

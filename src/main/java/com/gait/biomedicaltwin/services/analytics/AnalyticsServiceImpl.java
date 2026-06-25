@@ -10,7 +10,6 @@ import java.time.Duration;
 @Service
 @RequiredArgsConstructor
 public class AnalyticsServiceImpl implements AnalyticsService{
-    // --- Industrial Standards & Thresholds ---
     private static final double MAX_IMPACT_G = 2.5;
     private static final double MAX_ROLL_ANGLE = 8.0;
     private static final double RADIUS_FACTOR = 0.18;
@@ -19,31 +18,36 @@ public class AnalyticsServiceImpl implements AnalyticsService{
 
     @Override
     public void performBioMechanicalAnalysis(GaitDataPoint dp) {
+        // Get last data point context for sequential tracking differential parameters
         GaitDataPoint lastDp = dataPointRepository
-                .findTopBySession_IdOrderByTimestampDesc(dp.getSession().getId())
+                .findTopBySession_IdAndFootSideOrderByHardwareTimestampMsDesc(dp.getSession().getId(), dp.getFootSide())
                 .orElse(null);
 
         boolean isSwing = false;
-        if (lastDp != null) {
-            long timeDiff = Duration.between(lastDp.getTimestamp(), dp.getTimestamp()).toMillis();
-            if (timeDiff > 0) {
-                double pitchRate = Math.abs(dp.getPitchAngleY() - lastDp.getPitchAngleY()) / timeDiff;
+
+        // 🔥 BURST PROTECTION MATRIX: Using native sensor timestamps invariant
+        if (lastDp != null && lastDp.getHardwareTimestampMs() != null && dp.getHardwareTimestampMs() != null) {
+            long timeDiffMs = dp.getHardwareTimestampMs() - lastDp.getHardwareTimestampMs();
+
+            if (timeDiffMs > 0) {
+                // Correctly spaced telemetric packet calculation flow
+                double pitchRate = Math.abs(dp.getPitchAngleY() - lastDp.getPitchAngleY()) / timeDiffMs;
                 isSwing = pitchRate > 0.05;
             } else {
-                // 💡 FIX: Fallback threshold 12.0 se ghata kar 5.0 kiya.
-                // High-speed simulation mein jab timeDiff 0 hota hai, tab chote angles par bhi swing capture ho payega.
+                // 💡 Network congestion burst mode: Math falls back to boundary angle rules safely
                 isSwing = Math.abs(dp.getPitchAngleY()) > 5.0;
             }
         } else {
-            // Initial boundary check fallback
+            // Safe initial fallback processing logic
             isSwing = Math.abs(dp.getPitchAngleY()) > 5.0;
         }
 
         dp.setIsSwingPhase(isSwing);
 
-        // 2. Trajectory Calculation (Stance phase calculation layout)
+        // Vector Trajectory spatial coordinate mapping
         if (!isSwing) {
-            double height = dp.getSession().getUser().getHeightCm();
+            double height = (dp.getSession().getUser() != null && dp.getSession().getUser().getHeightCm() > 0)
+                    ? dp.getSession().getUser().getHeightCm() : 175.0;
             double R = height * RADIUS_FACTOR;
             calculateVectorTrajectory(dp, R);
         } else {
@@ -52,6 +56,7 @@ public class AnalyticsServiceImpl implements AnalyticsService{
             dp.setTrajectoryZ(0.0);
         }
 
+        // Invoke supplementary analytics filters
         calculateFaultyStep(dp);
         calculateStanceAndFlex(dp);
         calculateCadence(dp);
@@ -87,13 +92,8 @@ public class AnalyticsServiceImpl implements AnalyticsService{
         double pitchRad = Math.toRadians(dp.getPitchAngleY());
         double rollRad = Math.toRadians(dp.getFootRollAngleX());
 
-        double cosPitch = Math.cos(pitchRad);
-        double sinPitch = Math.sin(pitchRad);
-        double cosRoll = Math.cos(rollRad);
-        double sinRoll = Math.sin(rollRad);
-
-        dp.setTrajectoryX(Math.round((R * sinPitch) * 10000.0) / 10000.0);
-        dp.setTrajectoryY(Math.round((R * cosPitch * sinRoll) * 10000.0) / 10000.0);
-        dp.setTrajectoryZ(Math.round((R * (1 - (cosPitch * cosRoll))) * 10000.0) / 10000.0);
+        dp.setTrajectoryX(Math.round((R * Math.sin(pitchRad)) * 10000.0) / 10000.0);
+        dp.setTrajectoryY(Math.round((R * Math.cos(pitchRad) * Math.sin(rollRad)) * 10000.0) / 10000.0);
+        dp.setTrajectoryZ(Math.round((R * (1 - (Math.cos(pitchRad) * Math.cos(rollRad)))) * 10000.0) / 10000.0);
     }
 }

@@ -27,6 +27,9 @@ public interface GaitDataPointRepository extends JpaRepository<GaitDataPoint, Lo
 
     Optional<GaitDataPoint> findTopBySession_IdAndFootSideOrderByTimestampDesc(UUID sessionId, FootSide side);
 
+    // 🔥 Added for AnalyticsServiceImpl Burst Protection Engine
+    Optional<GaitDataPoint> findTopBySession_IdAndFootSideOrderByHardwareTimestampMsDesc(UUID sessionId, FootSide side);
+
     // --- CLEANUP & ARCHIVAL METHODS ---
     @Query("SELECT d FROM GaitDataPoint d WHERE d.session.id = :sessionId")
     List<GaitDataPoint> findBySessionId(@Param("sessionId") UUID sessionId);
@@ -40,20 +43,25 @@ public interface GaitDataPointRepository extends JpaRepository<GaitDataPoint, Lo
     @Query("SELECT SUM(d.stancePhaseDurationMs) FROM GaitDataPoint d WHERE d.session.id = :sessionId")
     Long sumStanceDurationBySessionId(@Param("sessionId") UUID sessionId);
 
+    // 🔥 Core Blueprint Fix: Counting exact unique step sequences across entire session
+    @Query("SELECT COUNT(DISTINCT d.stepId) FROM GaitDataPoint d WHERE d.session.id = :sessionId AND d.stepId IS NOT NULL")
+    long countUniqueStepsBySessionId(@Param("sessionId") UUID sessionId);
+
+    // 🔥 Type Update Fix: Handled transition from UUID to Long for industrial telemetry steps
     @Query("SELECT DISTINCT d.stepId FROM GaitDataPoint d WHERE d.session.id = :sessionId AND d.footSide = :side AND d.stepId IS NOT NULL")
-    List<UUID> findUniqueStepIdsBySession(@Param("sessionId") UUID sessionId, @Param("side") FootSide side);
+    List<Long> findUniqueStepIdsBySession(@Param("sessionId") UUID sessionId, @Param("side") FootSide side);
 
     @Query("SELECT AVG(d.rollOverParity) FROM GaitDataPoint d WHERE d.stepId IN :stepIds")
-    Double calculateAvgParityByStepIds(@Param("stepIds") List<UUID> stepIds);
+    Double calculateAvgParityByStepIds(@Param("stepIds") List<Long> stepIds);
 
     @Query("SELECT AVG(d.symmetryIndex) FROM GaitDataPoint d WHERE d.stepId IN :stepIds")
-    Double calculateAvgSymmetryByStepIds(@Param("stepIds") List<UUID> stepIds);
+    Double calculateAvgSymmetryByStepIds(@Param("stepIds") List<Long> stepIds);
 
-    List<GaitDataPoint> findByStepIdIn(List<UUID> stepIds);
+    List<GaitDataPoint> findByStepIdIn(List<Long> stepIds);
 
     @Query("SELECT COUNT(d) FROM GaitDataPoint d WHERE d.stepId IN :stepIds")
-    Long countByStepIdIn(@Param("stepIds") List<UUID> stepIds);
+    Long countByStepIdIn(@Param("stepIds") List<Long> stepIds);
 
     @Query("SELECT COUNT(d) FROM GaitDataPoint d WHERE d.stepId IN :stepIds AND d.isFatigued = true")
-    Long countByStepIdInAndIsFatiguedTrue(@Param("stepIds") List<UUID> stepIds);
+    Long countByStepIdInAndIsFatiguedTrue(@Param("stepIds") List<Long> stepIds);
 }
