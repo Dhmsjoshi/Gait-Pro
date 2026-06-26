@@ -31,56 +31,72 @@ public class IngestionServiceImpl implements IngestionService{
     private final AnalyticsService analyticsService;
     private final GaitPostProcessingService postProcessingService;
 
+    // Session automatic timeout criteria config (5 Minutes)
     private static final long SESSION_TIMEOUT_MINUTES = 5;
 
     @Override
     public void saveAndAnalyze(RawSensorDto dto) {
-        // 1. User Check
-        User user = userRepository.findById(dto.userId())
-                .orElseThrow(() -> new RuntimeException("User not found"));
 
+        // 1. USER VALIDATION CHECK
+        // Database se check karo ki user valid hai ya nahi
+        User user = userRepository.findById(dto.userId())
+                .orElseThrow(() -> new RuntimeException("❌ User not found with ID: " + dto.userId()));
+
+        // Height verification check: Metrics calculation ke liye height zaruri hai
         if (user.getHeightCm() == null || user.getHeightCm() <= 0) {
-            throw new RuntimeException("User height not configured for biometric analysis. User ID: " + user.getId());
+            throw new RuntimeException("❌ User height not configured for biometric analysis. User ID: " + user.getId());
         }
 
-        // 2. Active Session Lookup (Production Safety Fix)
+        // 2. ACTIVE SESSION LOOKUP
+        // User ki aisi session dhundo jiska endTime abhi tak NULL hai (Yaani running session)
         GaitSession activeSession = sessionRepository.findFirstByUser_IdAndEndTimeIsNullOrderByCreatedAtDesc(user.getId())
                 .orElse(null);
 
-        // 3. Session Timeout & Creation Logic
+        // 3. SESSION TIMEOUT & CREATION LOGIC
         if (activeSession != null) {
-            // 🔥 Burst protection link: finding timeout using latest DB data entries
+            // Agar running session mili, toh check karo ki aakhri datapoint kab aaya tha
             LocalDateTime lastDataTime = dataPointRepository.findTopBySession_IdOrderByTimestampDesc(activeSession.getId())
                     .map(GaitDataPoint::getTimestamp)
                     .orElse(activeSession.getStartTime());
 
+            // Check: Kya aakhri packet aaye huye 5 minute se zyada ho chuke hain?
             if (Duration.between(lastDataTime, LocalDateTime.now()).toMinutes() >= SESSION_TIMEOUT_MINUTES) {
+
+                log.info("📢 [TIMEOUT DETECTED] Session inactive for {} mins. Closing Session: {}",
+                        SESSION_TIMEOUT_MINUTES, activeSession.getId());
+
+                // Old session ko timestamp dekar lock karo
                 activeSession.setEndTime(LocalDateTime.now());
                 sessionRepository.save(activeSession);
 
-                // Trigger background calculations for the closed session
-                log.info("📢 Session timeout detected. Triggering background calculations for Session: {}", activeSession.getId());
+                // Background Thread trigger for multi-variable batch calculations
                 postProcessingService.processSessionMetricsAsync(activeSession.getId());
 
+                // Naye packets ke liye bilkul fresh session initialize karo
                 activeSession = createNewSession(user);
+
+            } else {
+                // 🏃🧠 AAPKA LOGIC FLOW HERE:
+                // User abhi chal raha hai (time delta < 5 mins). Nayi session nahi banegi,
+                // purani activeSession hi as-is aage forward ho jayegi!
+                log.debug("🏃 [SESSION-REUSED] User walking continuously. Reusing active Session ID: {}", activeSession.getId());
             }
         } else {
+            // Agar koi active session database me mili hi nahi (Fresh Walk Scenario)
+            log.info("🆕 [FRESH-START] No active session found for user. Creating a new entry sequence.");
             activeSession = createNewSession(user);
         }
 
-        // 4. Mapping MQTT Dto Record directly to Database Entity
+        // 4. MAPPING DTO RECORD PROPERTIES DIRECTLY TO DATABASE ENTITY
         GaitDataPoint dataPoint = new GaitDataPoint();
-        dataPoint.setSession(activeSession);
+        dataPoint.setSession(activeSession); // Link data point to our active/reused session
+        dataPoint.setTimestamp(LocalDateTime.now()); // Server entry system time
 
-        // System baseline logs time tracking
-        dataPoint.setTimestamp(LocalDateTime.now());
+        // 🔥 INDUSTRIAL IMPLEMENTATION FIELD CHANGES:
+        dataPoint.setHardwareTimestampMs(dto.timestampMs()); // Firmware native internal clock timing
+        dataPoint.setStepId(dto.stepId());                   // Chronological footprint tracking sequence ID
 
-        // 🔥 INDUSTRIAL SCENARIO FIX 1: Mapping Invariant Hardware Clock Metrics
-        dataPoint.setHardwareTimestampMs(dto.timestampMs());
-
-        // 🔥 INDUSTRIAL SCENARIO FIX 2: Mapping direct Sensor Step Tracking Context (Bypassing local UUID generator)
-        dataPoint.setStepId(dto.stepId());
-
+        // Standard metrics mapping conversions
         dataPoint.setFootSide(FootSide.valueOf(dto.footSide().toUpperCase()));
         dataPoint.setImpactShockWaveZ(dto.impactShockwaveZ());
         dataPoint.setFootRollAngleX(dto.footRollAngleX());
@@ -90,25 +106,32 @@ public class IngestionServiceImpl implements IngestionService{
         dataPoint.setStancePhaseDurationMs(dto.stancePhaseDurationMs());
         dataPoint.setStepIntervalMs(dto.stepIntervalMs());
 
-        // 5. Real-Time Analysis (Trajectory, Burst Protection & Faults Engine Activation)
+        // 5. REAL-TIME ENGINE EVALUATION
+        // Data point save karne se pehle instantaneous gait logic evaluate karo
         analyticsService.performBioMechanicalAnalysis(dataPoint);
 
-        // Raw points production storage storage commit
+        // Raw matrix transmission write to DB
         dataPointRepository.save(dataPoint);
 
-        log.debug("📦 [INGESTION-FLOW] Point processed successfully. Step ID: {} | Hardware Tick Time: {}",
+        log.debug("📦 [INGESTION-SUCCESS] Packet saved. Step ID: {} | Hardware Tick: {}",
                 dataPoint.getStepId(), dataPoint.getHardwareTimestampMs());
     }
 
+    /**
+     * Helper Method: Creates a clean new session object state in database
+     */
     private GaitSession createNewSession(User user) {
         GaitSession newSession = new GaitSession();
         newSession.setUser(user);
         newSession.setStartTime(LocalDateTime.now());
-        newSession.setIsProcessed(false);
+        newSession.setIsProcessed(false); // Post-processing is pending until session completes
         return sessionRepository.save(newSession);
     }
 
-    // 🔥 FORCE CLOSE FOR SIMULATOR TESTING
+    /**
+     * Test Interface Trigger: Forces active session boundary close immediately
+     * without waiting for the 5-minute natural idle timeout rule.
+     */
     @Override
     public void forceCloseSessionForTest(String userId) {
         GaitSession activeSession = sessionRepository.findFirstByUser_IdAndEndTimeIsNullOrderByCreatedAtDesc(UUID.fromString(userId))
@@ -118,12 +141,12 @@ public class IngestionServiceImpl implements IngestionService{
             activeSession.setEndTime(LocalDateTime.now());
             sessionRepository.save(activeSession);
 
-            log.info("🔌 Test complete! Forcing close and async processing for Session: {}", activeSession.getId());
+            log.info("🔌 [TEST-FORCE-CLOSE] Session manually terminated for evaluation. Session ID: {}", activeSession.getId());
 
-            // Is line se aapka Async config active hoga aur step-count blueprints trigger ho jayenge!
+            // Fire and forget: Triggers immediate multi-step aggregation computations
             postProcessingService.processSessionMetricsAsync(activeSession.getId());
         } else {
-            log.warn("⚠️ No active session found to force close for user: {}", userId);
+            log.warn("⚠️ [TEST-FORCE-WARN] Manual close requested but no running session active for User ID: {}", userId);
         }
     }
 }
